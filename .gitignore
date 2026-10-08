@@ -1,0 +1,15 @@
+# Dependencies
+node_modules/
+dist/
+build/
+.DS_Store
+Thumbs.db
+*.log
+
+# Environment files
+.env
+.env.local
+
+# Ignore all markdown files except README.md
+*.md
+!README.md
