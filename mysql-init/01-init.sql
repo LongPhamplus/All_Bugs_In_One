@@ -54,11 +54,11 @@ INSERT INTO system_secrets (secret_key, secret_val, description) VALUES
 ('SUPERADMIN_HASH', '$2b$12$e8YpM9hD0fE/7pG93dDKeOD6K4r5X2zV9/1l0b1s2t3u4v5w6x7y8', 'Master admin bcrypt password');
 
 -- 4. Stored Procedure kích hoạt sau 3 lần gọi liên tiếp: sp_deep_search_products
--- Mô hình 2 tham số: p_keyword (bị cắt cụt ở 64 ký tự) và p_category (tham số tiếp theo)
+-- Mô hình 2 tham số: p_keyword (cắt cụt ở 64 ký tự) và p_category (giới hạn 128 ký tự)
 -- Lỗ hổng: Boundary Truncation trên p_keyword nuốt ranh giới đóng nháy, giải phóng p_category thành mã SQL thực thi
 DROP PROCEDURE IF EXISTS sp_deep_search_products;
 DELIMITER //
-CREATE PROCEDURE sp_deep_search_products(IN p_keyword TEXT, IN p_category VARCHAR(255))
+CREATE PROCEDURE sp_deep_search_products(IN p_keyword TEXT, IN p_category VARCHAR(128))
 BEGIN
     DECLARE v_search VARCHAR(64);
     

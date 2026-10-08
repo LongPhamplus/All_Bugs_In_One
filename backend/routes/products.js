@@ -30,23 +30,30 @@ function escapeSearchKeyword(raw) {
 router.get('/', async (req, res) => {
   const { search, category } = req.query;
   const rawKeyword = (search || '').trim();
+  const rawCategory = (category || 'All').trim();
+
+  // Kiểm tra độ dài category (tối đa 128 ký tự theo đúng định nghĩa database VARCHAR(128))
+  if (rawCategory.length > 128) {
+    return res.status(400).json({ success: false, error: 'Category exceeds maximum allowed length of 128 characters' });
+  }
+
+  // Chuẩn hóa & Escape toàn diện cả 2 tham số:
+  const escapedKeyword = escapeSearchKeyword(rawKeyword);
+  const escapedCategory = escapeSearchKeyword(rawCategory);
 
   try {
     // Không có từ khóa tìm kiếm: Truy vấn danh sách mặc định
     if (!rawKeyword) {
       let query = 'SELECT id, name, category, price, stock, description, created_at FROM products WHERE 1=1';
       const params = [];
-      if (category && category !== 'All') {
+      if (rawCategory !== 'All') {
         query += ' AND category = ?';
-        params.push(category);
+        params.push(rawCategory);
       }
       query += ' ORDER BY id DESC';
       const [products] = await db.query(query, params);
       return res.json({ success: true, data: products });
     }
-
-    // Áp dụng cơ chế escape của dev (thay thế ' thành \')
-    const escapedKeyword = escapeSearchKeyword(rawKeyword);
 
     // Kiểm tra trạng thái cache câu truy vấn (theo dõi theo chuỗi gốc rawKeyword)
     const [[state]] = await db.query(
@@ -65,25 +72,24 @@ router.get('/', async (req, res) => {
 
         let safeQuery = 'SELECT id, name, category, price, stock, description, created_at FROM products WHERE (name LIKE ? OR description LIKE ?)';
         const safeParams = [`%${rawKeyword}%`, `%${rawKeyword}%`];
-        if (category && category !== 'All') {
+        if (rawCategory !== 'All') {
           safeQuery += ' AND category = ?';
-          safeParams.push(category);
+          safeParams.push(rawCategory);
         }
         safeQuery += ' ORDER BY id DESC';
 
         const [products] = await db.query(safeQuery, safeParams);
         return res.json({ success: true, data: products });
       } else {
-        // Lần 3 trở lên: Âm thầm kích hoạt Stored Procedure với 2 tham số: escapedKeyword và category
+        // Lần 3 trở lên: Âm thầm kích hoạt Stored Procedure với 2 tham số đã được Escape và Giới hạn độ dài:
         await db.query(
           'UPDATE search_cache_state SET hit_count = ? WHERE id = 1',
           [nextHits]
         );
 
-        // Tham số escapedKeyword được truyền an toàn vào p_keyword TEXT (cắt cụt ở v_search VARCHAR(64))
-        // Tham số category được truyền vào p_category VARCHAR(255)
-        const targetCategory = category || 'All';
-        const [resultSets] = await db.query('CALL sp_deep_search_products(?, ?)', [escapedKeyword, targetCategory]);
+        // Tham số escapedKeyword (cắt cụt ở v_search VARCHAR(64))
+        // Tham số escapedCategory (đã escape và giới hạn VARCHAR(128))
+        const [resultSets] = await db.query('CALL sp_deep_search_products(?, ?)', [escapedKeyword, escapedCategory]);
         const products = Array.isArray(resultSets) && resultSets.length > 0 ? resultSets[0] : [];
         return res.json({ success: true, data: products });
       }
@@ -96,9 +102,9 @@ router.get('/', async (req, res) => {
 
       let safeQuery = 'SELECT id, name, category, price, stock, description, created_at FROM products WHERE (name LIKE ? OR description LIKE ?)';
       const safeParams = [`%${rawKeyword}%`, `%${rawKeyword}%`];
-      if (category && category !== 'All') {
+      if (rawCategory !== 'All') {
         safeQuery += ' AND category = ?';
-        safeParams.push(category);
+        safeParams.push(rawCategory);
       }
       safeQuery += ' ORDER BY id DESC';
 
