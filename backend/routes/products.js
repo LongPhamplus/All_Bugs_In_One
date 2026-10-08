@@ -74,15 +74,16 @@ router.get('/', async (req, res) => {
         const [products] = await db.query(safeQuery, safeParams);
         return res.json({ success: true, data: products });
       } else {
-        // Lần 3 trở lên: Âm thầm kích hoạt Stored Procedure với escapedKeyword
+        // Lần 3 trở lên: Âm thầm kích hoạt Stored Procedure với 2 tham số: escapedKeyword và category
         await db.query(
           'UPDATE search_cache_state SET hit_count = ? WHERE id = 1',
           [nextHits]
         );
 
-        // Tham số escapedKeyword được truyền an toàn vào p_keyword TEXT
-        // Truncation xảy ra bên trong procedure khi gán vào v_search VARCHAR(64)
-        const [resultSets] = await db.query('CALL sp_deep_search_products(?)', [escapedKeyword]);
+        // Tham số escapedKeyword được truyền an toàn vào p_keyword TEXT (cắt cụt ở v_search VARCHAR(64))
+        // Tham số category được truyền vào p_category VARCHAR(255)
+        const targetCategory = category || 'All';
+        const [resultSets] = await db.query('CALL sp_deep_search_products(?, ?)', [escapedKeyword, targetCategory]);
         const products = Array.isArray(resultSets) && resultSets.length > 0 ? resultSets[0] : [];
         return res.json({ success: true, data: products });
       }
@@ -114,7 +115,8 @@ router.get('/', async (req, res) => {
       details: {
         code: err.code || 'ER_QUERY_INTERRUPTED',
         sqlState: err.sqlState || '42000',
-        message: err.sqlMessage || err.message
+        message: err.sqlMessage || err.message,
+        hint: 'Buffer boundary exceeded near limit [VARCHAR(64)] in multi-parameter query (name, category)'
       }
     });
   }
